@@ -1,7 +1,13 @@
 # Technical Architecture — Voice-to-Quote over WhatsApp
 
-**Status:** v2.0 · **Date:** 28 August 2026 · **Audience:** engineering team
+**Status:** v2.1 · **Date:** 29 August 2026 · **Audience:** engineering team
 **Supersedes:** [v1.0](ARCHITECTURE_v1.md) · **Extended by** [v3](ARCHITECTURE_v3_HARDENING.md) and [v3.1](ARCHITECTURE_v3.1_PATTERNS_AND_DIAGRAMS.md)
+
+**v2.1** folds in v3 §G's document seam — `quotes` is now `documents` with a
+`kind` column (§4.5), the lifecycle comes from `DevisSpec.lifecycle` (§6.2) and
+numbering from `spec.next_number()` (§14.1), with the seam itself written up as
+§6.5. Done now because it costs a day while the table is empty and a rewrite once
+it is not. Nothing else in the pipeline changed.
 
 This document is the build reference. It assumes zero existing code and describes the system to the level of detail where a competent engineer can start writing files without further design discussion.
 
@@ -15,8 +21,8 @@ section that appears in it.
 |---|---|---|
 | §4.1 `automation_mode IN ('shadow','copilot','auto')` | v3 §A.1 — `shadow` removed | No user, no exit criterion |
 | §8.4 `orphan_statuses` table | v3 §A.2 — a Redis key with a TTL | A 30-second buffer should not be a table that grows forever |
-| §4.5 `quotes` table | v3 §G.2 — `documents` with a `kind` column | The seam that makes invoicing an extension, not a rewrite |
-| §6.2 module-level `TRANSITIONS` | v3 §G.2 — `spec.lifecycle` per `DocumentSpec` | A devis change must not silently alter an invoice |
+| ~~§4.5 `quotes` table~~ | **applied in v2.1** — now `documents` with `kind` (§4.5, §6.5) | The seam that makes invoicing an extension, not a rewrite |
+| ~~§6.2 module-level `TRANSITIONS`~~ | **applied in v2.1** — now `DevisSpec.lifecycle` (§6.2) | A devis change must not silently alter an invoice |
 | §13.1 bare `Decimal` + `q2()` | v3.1 §L — `Money` and `Quantity` value objects | 20 m² + 3 units = 23, and unrounded money cannot then exist |
 | §16 adapter construction (unstated) | v3.1 §K — `app/composition.py` composition root | A module-level client makes `PROVIDER_MODE=fake` meaningless |
 | §14 `async_playwright()` per render | v3 §F.4 — pooled `BrowserPool`, recycle at 50 | Chromium accumulates memory across page loads |
@@ -50,7 +56,7 @@ section that appears in it.
 3. [Component architecture](#3-component-architecture)
 4. [Data model](#4-data-model)
 5. [Conversation layer and intent routing](#5-conversation-layer-and-intent-routing)
-6. [The quote state machine](#6-the-quote-state-machine)
+6. [The document state machine](#6-the-document-state-machine)
 7. [End-to-end request lifecycle](#7-end-to-end-request-lifecycle)
 8. [Message delivery guarantees](#8-message-delivery-guarantees)
 9. [WhatsApp integration layer](#9-whatsapp-integration-layer)
@@ -297,7 +303,7 @@ CREATE INDEX outbox_pending ON outbox (available_at)
 CREATE TABLE outbound_messages (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    quote_id     UUID REFERENCES quotes(id) ON DELETE SET NULL,
+    quote_id     UUID REFERENCES documents(id) ON DELETE SET NULL,
     dedupe_key   TEXT UNIQUE NOT NULL,   -- 'quote:{id}:v{n}:document'
     to_phone     TEXT NOT NULL,
     kind         TEXT NOT NULL,          -- text | document | buttons | template
@@ -328,7 +334,7 @@ CREATE TABLE conversation_sessions (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     phone_e164       TEXT NOT NULL,
-    active_quote_id  UUID REFERENCES quotes(id) ON DELETE SET NULL,
+    active_quote_id  UUID REFERENCES documents(id) ON DELETE SET NULL,
     last_inbound_at  TIMESTAMPTZ,        -- drives the 24h window (§9.4)
     last_outbound_at TIMESTAMPTZ,
     pending_intent   TEXT,               -- e.g. awaiting disambiguation answer
@@ -345,7 +351,7 @@ CREATE TABLE intent_decisions (
     intent       TEXT NOT NULL,
     confidence   NUMERIC(4,3) NOT NULL,
     method       TEXT NOT NULL,          -- rule | context | classifier | default
-    target_quote_id UUID REFERENCES quotes(id),
+    target_quote_id UUID REFERENCES documents(id),
     corrected_to TEXT,                   -- filled when a human relabels it
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -400,7 +406,7 @@ CREATE TABLE catalog_aliases (
 CREATE INDEX ON catalog_aliases USING hnsw (embedding vector_cosine_ops);
 ```
 
-### 4.5 Clients and quotes
+### 4.5 Clients and documents
 
 ```sql
 CREATE TABLE clients (
@@ -414,13 +420,15 @@ CREATE TABLE clients (
 );
 CREATE INDEX ON clients (tenant_id);
 
-CREATE TABLE quotes (
+CREATE TABLE documents (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     client_id      UUID REFERENCES clients(id),
+    kind           TEXT NOT NULL DEFAULT 'devis'
+                   CHECK (kind IN ('devis','facture','avoir')),   -- §6.5
     number         TEXT,                  -- 'DEV-2026-0042', assigned at render
     version        INT  NOT NULL DEFAULT 1,
-    supersedes_id  UUID REFERENCES quotes(id),   -- previous version
+    supersedes_id  UUID REFERENCES documents(id),   -- previous version
     root_id        UUID,                  -- first version; groups the lineage
     state          TEXT NOT NULL DEFAULT 'received',
     source_wamid   TEXT REFERENCES inbound_messages(wamid),
@@ -443,20 +451,21 @@ CREATE TABLE quotes (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX ON quotes (tenant_id, created_at DESC);
-CREATE INDEX ON quotes (root_id, version);
-CREATE INDEX quotes_active ON quotes (state)
-    WHERE state NOT IN ('sent','failed','cancelled','superseded');
-CREATE UNIQUE INDEX ON quotes (tenant_id, number, version)
+CREATE INDEX ON documents (tenant_id, created_at DESC);
+CREATE INDEX ON documents (root_id, version);
+CREATE INDEX documents_active ON documents (kind, state)
+    WHERE state NOT IN ('sent','failed','cancelled','superseded','expired');
+-- Numbering is per kind: a devis and a facture do not share a sequence.
+CREATE UNIQUE INDEX ON documents (tenant_id, kind, number, version)
     WHERE number IS NOT NULL;
 -- Follow-up scan (§11.4)
-CREATE INDEX quotes_awaiting_outcome ON quotes (sent_at)
+CREATE INDEX documents_awaiting_outcome ON documents (sent_at)
     WHERE outcome IS NULL AND sent_at IS NOT NULL;
 
 CREATE TABLE quote_lines (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    quote_id         UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    quote_id         UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     position         INT  NOT NULL,
     raw_text         TEXT NOT NULL,
     catalog_item_id  UUID REFERENCES catalog_items(id),
@@ -476,7 +485,7 @@ CREATE INDEX ON quote_lines (tenant_id);
 CREATE TABLE quote_events (
     id         BIGSERIAL PRIMARY KEY,
     tenant_id  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    quote_id   UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    quote_id   UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     from_state TEXT,
     to_state   TEXT NOT NULL,
     actor      TEXT NOT NULL,   -- system | user | operator
@@ -490,7 +499,7 @@ CREATE INDEX ON quote_events (tenant_id);
 CREATE TABLE clarifications (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    quote_id    UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    quote_id    UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     field_path  TEXT NOT NULL,          -- 'lines[2].quantity'
     question    TEXT NOT NULL,
     options     JSONB,
@@ -508,13 +517,30 @@ CREATE INDEX ON clarifications (tenant_id);
 
 **`unit_price_ht` on `quote_lines` is a snapshot, deliberately.** A quote sent in March must still print March's price in June. Joining live to `catalog_items` at render time would silently rewrite history.
 
+**What the `documents` rename deliberately did not touch.** The root table is
+`documents` with a `kind` column (v3 §G). Three things around it keep their
+original names, and each will look like an oversight to the next person who reads
+this:
+
+| Kept as | Not renamed to | Because |
+|---|---|---|
+| `quote_lines`, `quote_events`, `clarifications` | `document_lines`, … | v3.1 §M and the `devis-data-layer` skill both name the Document aggregate's children exactly this way |
+| the `quote_id` foreign key | `document_id` | outbound dedupe keys are `quote:{quote_id}:v{n}:document`, specified in `devis-messaging`. Renaming the column silently changes every key, and a changed dedupe key is a duplicate PDF |
+| `QuoteState` | `DocumentState` | `devis-conversation-flow` and `devis-testing` both reference it by name |
+
+The rename is deliberately surgical: it buys the invoicing seam and nothing else.
+Widening it would mean editing three skills in the same change, and a skill that
+disagrees with the schema is worse than an inconsistent name — it gets followed
+confidently. If the wider rename is ever wanted, it is one PR that touches the
+schema and all three skills together, never the schema alone.
+
 ### 4.6 Cost metering
 
 ```sql
 CREATE TABLE usage_events (
     id          BIGSERIAL PRIMARY KEY,
     tenant_id   UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    quote_id    UUID REFERENCES quotes(id) ON DELETE SET NULL,
+    quote_id    UUID REFERENCES documents(id) ON DELETE SET NULL,
     kind        TEXT NOT NULL,   -- wa_message_in | wa_message_out | asr_seconds
                                  -- | llm_tokens_in | llm_tokens_out
                                  -- | embedding | render
@@ -544,7 +570,7 @@ CREATE POLICY tenant_isolation ON catalog_items
 
 Repeat for every tenant-scoped table:
 
-`quotes` · `quote_lines` · `quote_events` · `clarifications` · `clients` ·
+`documents` · `quote_lines` · `quote_events` · `clarifications` · `clients` ·
 `catalog_aliases` · `catalog_price_history` · `usage_events` ·
 `conversation_sessions` · `intent_decisions` · `outbound_messages`
 
@@ -684,7 +710,7 @@ Below `INTENT_CONFIDENCE_THRESHOLD` (start 0.7) → `unknown` → ask the user p
 
 ---
 
-## 6. The quote state machine
+## 6. The document state machine
 
 ### 6.1 States
 
@@ -776,15 +802,38 @@ TRANSITIONS: dict[QuoteState, set[QuoteState]] = {
     QuoteState.FAILED:              {QuoteState.RECEIVED},   # operator retry
 }
 
-TERMINAL = {QuoteState.SUPERSEDED, QuoteState.EXPIRED,
-            QuoteState.CANCELLED, QuoteState.FAILED}
-
-class IllegalTransition(Exception): ...
-
-def assert_can(frm: QuoteState, to: QuoteState) -> None:
-    if to not in TRANSITIONS.get(frm, set()):
-        raise IllegalTransition(f"{frm} -> {to}")
+TERMINAL = {QuoteState.SUPERSEDED, QuoteState.EXPIRED, QuoteState.CANCELLED}
 ```
+
+`FAILED` is not terminal: it has one edge out, to `RECEIVED`, for an operator
+retry after the cause is fixed. Without it a provider outage permanently loses a
+customer's voice note. It is a *resting* state, which is a different thing from a
+terminal one, and listing it in both places would make `TERMINAL` mean nothing.
+
+**The table belongs to the document kind, not to the module.** A devis lifecycle
+change must not silently alter an invoice, so the transitions above are
+`DevisSpec.lifecycle` and the state machine reads them through the spec (§6.5):
+
+```python
+# app/domain/documents.py — pure
+class DevisSpec:
+    kind = "devis"
+    lifecycle = TRANSITIONS          # the table above
+    terminal = TERMINAL
+    requires_gapless_numbering = False
+    is_mutable_after_issue = True
+
+def assert_can(spec: DocumentSpec, frm: QuoteState, to: QuoteState) -> None:
+    if to not in spec.lifecycle.get(frm, set()):
+        raise IllegalTransition(f"{spec.kind}: {frm} -> {to}")
+```
+
+`IllegalTransition` is not defined here: it is an `IntegrityError` in the error
+taxonomy (v3 §B), which is what makes it page someone and never retry. Retrying a
+broken invariant just breaks it repeatedly and destroys the evidence.
+
+The full `DocumentSpec` protocol — numbering, mutability, pre-issue validation,
+the fields a facture requires that a devis does not — is §6.5.
 
 **Note that `outcome` is not a state.** Accepted / refused is a *property of a sent quote*, recorded on the row, not a lifecycle position. Modelling it as a state would have forced `accepted` and `revising` to be mutually exclusive, which they are not — clients accept quotes and then ask for changes.
 
@@ -793,13 +842,18 @@ def assert_can(frm: QuoteState, to: QuoteState) -> None:
 A revision never mutates a sent quote. The sent PDF is a commercial document that exists in someone else's WhatsApp.
 
 ```python
-async def revise(session, original: Quote, delta: RevisionDelta, trace_id: str) -> Quote:
-    await transition(session, original.id, QuoteState.SENT, QuoteState.REVISING,
+async def revise(session, original: Document, delta: RevisionDelta, trace_id: str) -> Document:
+    spec = spec_for(original.kind)                    # DevisSpec today
+    if not spec.is_mutable_after_issue:
+        raise IllegalTransition(f"{spec.kind} cannot be revised")   # a facture needs an avoir
+
+    await transition(session, spec, original.id, QuoteState.SENT, QuoteState.REVISING,
                      actor="user", trace_id=trace_id)
 
-    new = Quote(
+    new = Document(
         tenant_id=original.tenant_id,
         client_id=original.client_id,
+        kind=original.kind,                  # a revision never changes kind
         root_id=original.root_id or original.id,
         supersedes_id=original.id,
         version=original.version + 1,
@@ -809,7 +863,7 @@ async def revise(session, original: Quote, delta: RevisionDelta, trace_id: str) 
     )
     new.lines = apply_delta(deepcopy(original.lines), delta)   # pure, in domain/
     session.add(new)
-    await transition(session, original.id, QuoteState.REVISING,
+    await transition(session, spec, original.id, QuoteState.REVISING,
                      QuoteState.SUPERSEDED, actor="system", trace_id=trace_id)
     return new
 ```
@@ -823,13 +877,13 @@ The document prints `DEV-2026-0042 · v2` and a line stating it replaces v1. Amb
 Transitions are persisted atomically with an optimistic guard, so two workers racing on the same quote cannot both advance it:
 
 ```python
-async def transition(session, quote_id, frm, to, actor, payload=None, trace_id=None):
-    assert_can(frm, to)
+async def transition(session, spec, quote_id, frm, to, actor, payload=None, trace_id=None):
+    assert_can(spec, frm, to)            # the kind's lifecycle, not a global one
     res = await session.execute(
-        update(Quote)
-        .where(Quote.id == quote_id, Quote.state == frm)   # ← the guard
+        update(Document)
+        .where(Document.id == quote_id, Document.state == frm)   # ← the guard
         .values(state=to, updated_at=func.now())
-        .returning(Quote.id)
+        .returning(Document.id)
     )
     if res.scalar_one_or_none() is None:
         raise ConcurrentTransition(quote_id, frm, to)
@@ -838,6 +892,52 @@ async def transition(session, quote_id, frm, to, actor, payload=None, trace_id=N
 ```
 
 `ConcurrentTransition` is caught and logged at INFO, not ERROR — under retries it is expected, and treating it as an error trains the team to ignore alerts.
+
+### 6.5 The document seam
+
+The Moroccan e-invoicing mandate reaches this customer segment in January 2027.
+Invoicing is still a non-goal (§1.3), but the *shape* of the table is decided now,
+while it holds hundreds of rows rather than hundreds of thousands.
+
+A devis and a facture differ substantially — but in **policy**, not in structure.
+Both are a tenant, a client, priced lines, totals and a lifecycle.
+
+| | Devis | Facture |
+|---|---|---|
+| Numbering | gaps allowed (§14.1) | **gapless, legally required** |
+| Mutability | revisable (§6.3) | immutable once issued; corrected by an avoir |
+| Lifecycle | sent → outcome | issued → cleared → paid |
+| Format | PDF | **structured XML (UBL 2.1); a PDF is not sufficient** |
+| Validation | none | DGI clearance before it is legally valid |
+| Signature | none | qualified or advanced electronic signature |
+
+So the difference is carried by a policy object, not a subclass:
+
+```python
+# app/domain/documents.py — pure
+class DocumentSpec(Protocol):
+    kind: str                                   # 'devis' | 'facture' | 'avoir'
+    template: str
+    lifecycle: dict[QuoteState, set[QuoteState]]
+    terminal: frozenset[QuoteState]
+    requires_gapless_numbering: bool
+    is_mutable_after_issue: bool
+    required_tenant_fields: frozenset[str]      # ICE, RC, IF for factures
+
+    def next_number(self, ctx: NumberingContext) -> str: ...
+    def validate_before_issue(self, doc: PricedDocument) -> list[str]: ...
+```
+
+**What this buys, and what it costs.** Pricing, matching, extraction, messaging and
+the conversation layer are untouched — they already work on lines and totals, not
+on quote-ness. What changes is the table name, a `kind` column, and the state
+machine and numbering reading their rules from the spec instead of a module-level
+constant. That is roughly a day's work now and a rewrite later.
+
+**This is the only speculative abstraction the architecture permits.** It is
+justified because the requirement is dated, external and not optional. Everything
+else speculative should still be refused — see v3 §G for the full argument and
+v3.1 §R.2 for the list of patterns deliberately rejected.
 
 ---
 
@@ -1321,10 +1421,10 @@ v1 built follow-up reminders on `accepted_at`, which nothing ever populated. The
 # scheduler, daily
 async def request_outcomes(session):
     stale = await session.execute(
-        select(Quote).where(
-            Quote.outcome.is_(None),
-            Quote.sent_at < utcnow() - timedelta(days=3),
-            Quote.state == QuoteState.SENT,
+        select(Document).where(
+            Document.outcome.is_(None),
+            Document.sent_at < utcnow() - timedelta(days=3),
+            Document.state == QuoteState.SENT,
         ).limit(500)
     )
     for q in stale.scalars():
@@ -1530,17 +1630,28 @@ Operational notes:
 
 v1 required gapless numbering. **Removed.** Gapless sequences are a legal requirement for *invoices*, not quotes, and enforcing it takes a row lock on `tenants` that serialises quote creation per tenant — eventually inside a long transaction that also holds rendering.
 
+Numbering is a **policy of the kind**, so it lives behind `spec.next_number()`
+(§6.5) rather than in a shared helper. `DevisSpec` may take gaps; `FactureSpec`
+will not be able to, and that difference must not be a flag someone forgets to
+check:
+
 ```python
-async def assign_number(session, tenant_id) -> str:
-    async with session.begin():                       # short, isolated transaction
-        n = await session.scalar(
-            update(Tenant).where(Tenant.id == tenant_id)
-            .values(quote_counter=Tenant.quote_counter + 1)
-            .returning(Tenant.quote_counter))
-    return f"DEV-{utcnow():%Y}-{n:04d}"
+class DevisSpec:
+    requires_gapless_numbering = False
+
+    async def next_number(self, ctx: NumberingContext) -> str:
+        async with ctx.session.begin():               # short, isolated transaction
+            n = await ctx.session.scalar(
+                update(Tenant).where(Tenant.id == ctx.tenant_id)
+                .values(quote_counter=Tenant.quote_counter + 1)
+                .returning(Tenant.quote_counter))
+        return f"DEV-{ctx.now:%Y}-{n:04d}"
 ```
 
 Assigned at render, not at creation, so abandoned quotes do not consume numbers. Gaps are acceptable and expected.
+
+The counter is per tenant, and the unique index is on `(tenant_id, kind, number,
+version)` — a devis and a facture do not share a sequence.
 
 Revisions **keep the number** and increment `version`: `DEV-2026-0042 · v2`, with a printed line stating it replaces v1.
 
@@ -1593,7 +1704,7 @@ SELECT
     bool_or(u.estimated)                                        AS has_estimates
 FROM tenants t
 JOIN usage_events u ON u.tenant_id = t.id
-LEFT JOIN quotes q ON q.tenant_id = t.id
+LEFT JOIN documents q ON q.tenant_id = t.id
                   AND q.created_at >= date_trunc('month', now())
 JOIN plans p ON p.code = t.plan
 WHERE u.occurred_at >= date_trunc('month', now())
@@ -1613,12 +1724,13 @@ devis-whatsapp/
 │   ├── gateway/            main.py, webhooks.py, health.py, admin.py
 │   ├── domain/             ← pure, no I/O
 │   │   ├── entities.py
-│   │   ├── state_machine.py
+│   │   ├── documents.py        DocumentSpec, DevisSpec — the kind's policy (§6.5)
+│   │   ├── state_machine.py    reads spec.lifecycle, holds no table of its own
 │   │   ├── intents.py          intent enum + routing rules (pure)
 │   │   ├── revision.py         apply_delta
 │   │   ├── pricing.py
 │   │   ├── units.py            normalisation & conversion
-│   │   └── numbering.py
+│   │   └── numbering.py        formatting only; sequencing is spec.next_number()
 │   ├── services/           routing.py, ingest.py, transcription.py,
 │   │                       extraction.py, matching.py, quoting.py,
 │   │                       clarification.py, onboarding.py, outcomes.py,

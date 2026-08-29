@@ -280,7 +280,7 @@ async def extract_with_verification(wav, ctx, dl: Deadline):
 
 With path B skipped, the confidence threshold rises to 0.85 (v2 §10.4), so the system asks more questions instead of sending unverified numbers. Slower and more cautious beats fast and wrong.
 
-`quotes.degraded_modes JSONB` records which degradations applied. Without it, a quality dip during a slow period looks like a model regression, and you go looking in the wrong place.
+`documents.degraded_modes JSONB` records which degradations applied. Without it, a quality dip during a slow period looks like a model regression, and you go looking in the wrong place.
 
 ---
 
@@ -380,7 +380,7 @@ async def transcribe_with_failover(wav, dl: Deadline) -> Transcript:
     raise ProviderUnavailable("all ASR providers unavailable") from last
 ```
 
-**Failover must be loud.** Silent failover to a weaker Darija model degrades quality invisibly, which is exactly the failure the eval harness exists to catch and cannot see if nobody knows it happened. `quotes.asr_provider` already records which one ran — the metric makes it visible in aggregate.
+**Failover must be loud.** Silent failover to a weaker Darija model degrades quality invisibly, which is exactly the failure the eval harness exists to catch and cannot see if nobody knows it happened. `documents.asr_provider` already records which one ran — the metric makes it visible in aggregate.
 
 ---
 
@@ -598,11 +598,13 @@ class DocumentSpec(Protocol):
 
 ### G.3 What to do now versus later
 
-**Now** (roughly a day, while the table has hundreds of rows):
+**Now** (roughly a day, while the table has hundreds of rows)
+— ✅ **applied in [v2.1](TECHNICAL_ARCHITECTURE.md); the seam is written up as its §6.5.**
+No migration was needed in the end: the change landed before the table existed:
 
-- Rename `quotes` → `documents`, add `kind TEXT NOT NULL DEFAULT 'devis'`.
-- Move `TRANSITIONS` behind `DevisSpec.lifecycle`.
-- Move numbering behind `spec.next_number()`.
+- ~~Rename `quotes` → `documents`, add `kind TEXT NOT NULL DEFAULT 'devis'`.~~
+- ~~Move `TRANSITIONS` behind `DevisSpec.lifecycle`.~~
+- ~~Move numbering behind `spec.next_number()`.~~
 
 **Later, when invoicing is actually built:** `FactureSpec`, the XML serialiser, the DGI adapter, the signature chain. None of it touches the pipeline.
 

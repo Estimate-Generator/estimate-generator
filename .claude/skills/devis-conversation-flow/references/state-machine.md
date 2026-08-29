@@ -74,11 +74,16 @@ customer's voice note.
 ## Adding a state
 
 1. Add to `QuoteState`.
-2. Add its entry in `TRANSITIONS` with every edge **out**.
+2. Add its entry in the relevant spec's `lifecycle` with every edge **out** —
+   `DevisSpec.lifecycle`, not a module-level constant, so a devis change cannot
+   silently alter an invoice.
 3. Add the edge **in** from every state that can reach it. This is the step
    that gets missed; the state then exists but is unreachable.
-4. Decide whether it is terminal and add it to `TERMINAL` if so.
-5. Add it to the `quotes_active` partial index predicate if it is *not* an
+4. Decide whether it is terminal and add it to `spec.terminal` if so. Terminal
+   means *no edges out at all* — `failed` is not terminal, because an operator
+   can retry it back to `received`. A state in both places makes `terminal`
+   mean nothing.
+5. Add it to the `documents_active` partial index predicate if it is *not* an
    in-flight state, or the index stops being selective.
 6. Cover the new path in `tests/unit/test_state_machine.py`.
 

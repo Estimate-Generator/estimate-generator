@@ -55,7 +55,7 @@ Red flags: `except Exception:` that logs and continues, swallowing an `Integrity
 - **Instants in UTC**; date boundaries computed in `Africa/Casablanca` then converted.
 - **`temperature=0.0`** for extraction and classification; cache keys include prompt version and model id.
 - **Clock and ids injected**, never called directly, in anything new that reasons about time.
-- **State transitions declared** in `TRANSITIONS`, with the optimistic guard.
+- **State transitions declared** in the kind's `spec.lifecycle`, not a module-level constant, with the optimistic guard.
 - **Sent quotes superseded, not mutated.**
 - **New intent registered** in the enum, the classifier prompt, the handler map *and* the routing eval suite. The eval suite is the usual omission.
 - **Prompt changes are new versioned files**, registry updated, old version retained.

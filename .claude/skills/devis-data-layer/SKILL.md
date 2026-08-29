@@ -54,15 +54,22 @@ Add the index in the same migration as the query that needs it. Two patterns wor
 **Partial indexes for state scans.** Most queries look at the small set of in-flight rows, so index only those:
 
 ```sql
-CREATE INDEX quotes_active ON quotes (state)
-    WHERE state NOT IN ('sent','failed','cancelled','superseded');
+CREATE INDEX documents_active ON documents (kind, state)
+    WHERE state NOT IN ('sent','failed','cancelled','superseded','expired');
 ```
+
+Every resting state belongs in that predicate. Leaving one out — `expired` was
+missed originally — keeps terminal rows in an index whose whole purpose is to be
+small.
 
 **Partial unique for optional keys.** A column that is unique when present:
 
 ```sql
-CREATE UNIQUE INDEX ON quotes (tenant_id, number, version) WHERE number IS NOT NULL;
+CREATE UNIQUE INDEX ON documents (tenant_id, kind, number, version)
+    WHERE number IS NOT NULL;
 ```
+
+`kind` is in the key because a devis and a facture do not share a sequence.
 
 ## Transaction boundaries follow aggregates
 

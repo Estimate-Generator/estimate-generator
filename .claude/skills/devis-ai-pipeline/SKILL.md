@@ -38,7 +38,7 @@ extraction:
 
 This exists so that rollback is a config change taking seconds, not a deploy taking a pipeline run. A prompt change is riskier than a code change — no compiler, no type system, silent failure mode — so it needs a faster escape hatch, not a slower one.
 
-Editing a prompt means creating `v{n+1}`, not modifying `v{n}`. The old version stays loadable for 30 days because `quotes.prompt_version` records which version produced each quote, and "did quality drop after Tuesday" needs both versions available to answer.
+Editing a prompt means creating `v{n+1}`, not modifying `v{n}`. The old version stays loadable for 30 days because `documents.prompt_version` records which version produced each quote, and "did quality drop after Tuesday" needs both versions available to answer.
 
 Rollout procedure and the resolution logic: `references/prompt-registry.md`.
 

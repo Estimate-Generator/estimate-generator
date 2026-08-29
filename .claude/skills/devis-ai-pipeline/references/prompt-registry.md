@@ -41,7 +41,7 @@ tenant UUID, never use `random()`. A tenant flipping between prompt versions
 between messages produces inconsistent behaviour inside one conversation,
 which is far more confusing than either version alone.
 
-Record the resolved version on `quotes.prompt_version`. Without it, "did
+Record the resolved version on `documents.prompt_version`. Without it, "did
 quality drop after Tuesday" has no answer.
 
 ## Rollout procedure

@@ -55,7 +55,7 @@ The table is still plain data. Adding a state means adding the entry *and* every
 Transitions persist with an optimistic guard so two workers racing cannot both advance a quote:
 
 ```python
-update(Quote).where(Quote.id == qid, Quote.state == frm).values(state=to)
+update(Document).where(Document.id == qid, Document.state == frm).values(state=to)
 ```
 
 `ConcurrentTransition` is expected under retries. Log it at INFO. Treating it as an error trains the team to ignore alerts.
@@ -75,11 +75,12 @@ The same test applies to `kind`: a genuinely different lifecycle is a new `Docum
 A sent quote exists in someone else's WhatsApp. It is immutable.
 
 ```python
-new = Quote(root_id=original.root_id or original.id,
-            supersedes_id=original.id,
-            version=original.version + 1,
-            number=original.number,          # same number
-            state=QuoteState.MATCHING)
+new = Document(kind=original.kind,           # a revision never changes kind
+               root_id=original.root_id or original.id,
+               supersedes_id=original.id,
+               version=original.version + 1,
+               number=original.number,       # same number
+               state=QuoteState.MATCHING)
 new.lines = apply_delta(deepcopy(original.lines), delta)
 ```
 

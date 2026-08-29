@@ -27,7 +27,7 @@ PostgreSQL unless `FORCE ROW LEVEL SECURITY` is set, which is a quiet way to
 have RLS enabled and doing nothing.
 
 ```sql
-ALTER TABLE quotes FORCE ROW LEVEL SECURITY;
+ALTER TABLE documents FORCE ROW LEVEL SECURITY;
 ```
 
 Set this on every tenant-scoped table. Belt and braces, and cheap.
@@ -108,9 +108,9 @@ D3  add the NOT NULL constraint (validate separately on large tables)
 On a large table, avoid the full-table lock:
 
 ```sql
-ALTER TABLE quotes ADD CONSTRAINT quotes_x_not_null
+ALTER TABLE documents ADD CONSTRAINT documents_x_not_null
     CHECK (x IS NOT NULL) NOT VALID;
-ALTER TABLE quotes VALIDATE CONSTRAINT quotes_x_not_null;  -- no exclusive lock
+ALTER TABLE documents VALIDATE CONSTRAINT documents_x_not_null;  -- no exclusive lock
 ```
 
 ### Changing a column type
@@ -127,9 +127,9 @@ async def backfill(engine, batch=1000):
     while True:
         async with admin_session(engine) as s:
             n = await s.execute(text("""
-                UPDATE quotes SET new_col = derive(old_col)
+                UPDATE documents SET new_col = derive(old_col)
                 WHERE id IN (
-                    SELECT id FROM quotes
+                    SELECT id FROM documents
                     WHERE new_col IS NULL
                     ORDER BY id LIMIT :batch
                     FOR UPDATE SKIP LOCKED

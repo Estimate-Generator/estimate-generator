@@ -1,5 +1,32 @@
 # Technical Architecture — Voice-to-Quote over WhatsApp
 
+> ## ⛔ SUPERSEDED — do not build from this document
+>
+> **Status:** v1.0, superseded by [v2.0](TECHNICAL_ARCHITECTURE.md) on 28 August 2026.
+> **Retained as history**, not as a reference. Read [`README.md`](README.md) first.
+>
+> v1 models a *message pipeline*; the system is a *conversation*. It also assumes
+> network calls either succeed or fail. Both assumptions are wrong, and the
+> consequences are not cosmetic:
+>
+> | § | Defect | Consequence |
+> |---|---|---|
+> | 6, 7.2 | No transactional outbox — the enqueue happens after the commit | A crash in the gap **loses the voice note permanently**; Meta's redelivery is swallowed by `ON CONFLICT DO NOTHING` |
+> | 7.5 | No outbound idempotency: no `outbound_messages`, no dedupe key, no claim | A retry after a timeout puts a **second PDF in a real client's WhatsApp** |
+> | 7.2 | `statuses` never parsed | Delivery is unknown, failures unclassifiable, billing unreconcilable |
+> | — | No conversation layer | Every inbound message becomes a quote request |
+> | 5 | `sent` is terminal; outcome modelled as a state | Revisions have no implementation path |
+> | 16 | No held-out corpus split | **Every quality number in this document is unreliable** |
+> | 4.1, 21 | `accepted_at` is declared but never written | The paid follow-up feature is blind |
+> | 10 | Rounding convention unstated; no golden cases | Pricing is self-consistent but unspecified |
+> | 11 | Gapless quote numbering required | Serialises quote creation per tenant, for an invoice-only legal requirement |
+>
+> The full list, with reasons, is the changelog at the top of
+> [v2](TECHNICAL_ARCHITECTURE.md). Everything below this banner is the
+> original v1 text, unedited.
+
+---
+
 **Status:** Draft v1.0 · **Date:** 28 August 2026 · **Audience:** engineering team
 
 This document is the build reference. It assumes zero existing code and describes the system to the level of detail where a competent engineer can start writing files without further design discussion.

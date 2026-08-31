@@ -4,3 +4,5 @@ node_modules/
 npm-debug.log
 .venv/
 .venv-atlasia/
+__pycache__/
+*.pyc

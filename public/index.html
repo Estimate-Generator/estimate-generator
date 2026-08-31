@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevisAI - Artisan Maroc</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero">
+        <div class="hero-badge">Generateur IA de devis & factures</div>
+        <h1>Creer un devis ou une facture pro en quelques minutes</h1>
+        <p>
+          L'IA transforme ta description en un document clair, propre et
+          partageable. Simple, rapide et gratuit pour demarrer.
+        </p>
+        <div class="hero-actions">
+          <button class="primary" onclick="document.getElementById('quote-form').scrollIntoView({behavior: 'smooth'})">
+            Essayer gratuitement
+          </button>
+          <button class="secondary" onclick="document.getElementById('features').scrollIntoView({behavior: 'smooth'})">
+            Voir les fonctionnalites
+          </button>
+        </div>
+      </header>
+
+      <section id="features" class="card">
+        <h2>Pourquoi les artisans l'adorent</h2>
+        <div class="feature-grid">
+          <div class="feature">
+            <h3>Devis automatique</h3>
+            <p>Decris le travail, l'IA propose les lignes et les prix.</p>
+          </div>
+          <div class="feature">
+            <h3>Modeles metier</h3>
+            <p>BTP, plomberie, clim, menuiserie, peinture, electricite.</p>
+          </div>
+          <div class="feature">
+            <h3>PDF propre</h3>
+            <p>Un format clair pour envoyer au client en un clic.</p>
+          </div>
+          <div class="feature">
+            <h3>Conseils IA</h3>
+            <p>Questions a poser, risques, marges et checklist chantier.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Comment ca marche</h2>
+        <div class="steps">
+          <div class="step">
+            <span class="step-number">1</span>
+            <div>
+              <h3>Decris la prestation</h3>
+              <p>Ex: pose carrelage 20m2 + finition plinthes.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-number">2</span>
+            <div>
+              <h3>L'IA propose les lignes</h3>
+              <p>Quantites, unites, prix et notes professionnelles.</p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-number">3</span>
+            <div>
+              <h3>Tu ajustes et exportes</h3>
+              <p>PDF propre pour client, suivi et relance.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Infos devis</h2>
+        <form id="quote-form">
+          <div class="grid">
+            <label>
+              Type de document
+              <select name="documentType">
+                <option value="devis" selected>Devis</option>
+                <option value="facture">Facture</option>
+              </select>
+            </label>
+            <label>
+              Entreprise
+              <input type="text" name="businessName" placeholder="Nom de l'entreprise" />
+            </label>
+            <label>
+              Client
+              <input type="text" name="clientName" placeholder="Nom du client" />
+            </label>
+            <label>
+              Ville
+              <input type="text" name="city" placeholder="Casablanca, Rabat..." />
+            </label>
+            <label>
+              Marge (%)
+              <input type="number" name="marginPercent" min="0" max="100" value="15" />
+            </label>
+            <label>
+              Numero facture (optionnel)
+              <input type="text" name="invoiceNumber" placeholder="FAC-2025-001" />
+            </label>
+            <label>
+              Date d'emission
+              <input type="date" name="issueDate" />
+            </label>
+            <label>
+              Date d'echeance
+              <input type="date" name="dueDate" />
+            </label>
+          </div>
+
+          <label>
+            Description du travail
+            <textarea
+              name="description"
+              rows="4"
+              placeholder="Ex: Pose carrelage 20m2 salon + chape de ragréage..."
+              required
+            ></textarea>
+          </label>
+
+          <div class="row">
+            <label class="toggle">
+              <input type="checkbox" name="withVat" />
+              TVA 20% (optionnel)
+            </label>
+            <div class="row-actions">
+              <button type="button" id="analyze-btn" class="secondary">
+                Optimiser avec IA
+              </button>
+              <button type="submit" class="primary">Generer le devis</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="row-between">
+          <h2>Assistant vocal IA</h2>
+        </div>
+        <div id="chat" class="chat">
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input">
+            <button id="mic-btn" class="mic-btn" type="button" title="Parler">
+              <span class="mic-icon" aria-hidden="true"></span>
+            </button>
+            <input
+              id="chat-text"
+              type="text"
+              placeholder="Dis: 'Je veux un devis pour...' ou 'Je veux une facture...'"
+            />
+            <button id="chat-send" class="primary" type="button">Envoyer</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card test-card">
+        <div class="row-between">
+          <div>
+            <h2>Test Atlas / Darija</h2>
+            <p class="muted">
+              Parle en darija ou ecris une demande, puis teste la comprehension avant de generer.
+            </p>
+          </div>
+          <span class="test-badge">Prototype local</span>
+        </div>
+
+        <div class="grid test-grid">
+          <label>
+            Moteur STT
+            <select id="atlas-language">
+              <option value="atlasia" selected>Atlasia MoulSot Darija</option>
+              <option value="ar-MA">Navigateur Darija / Arabe Maroc (ar-MA)</option>
+              <option value="fr-MA">Navigateur Francais Maroc (fr-MA)</option>
+              <option value="fr-FR">Navigateur Francais (fr-FR)</option>
+            </select>
+          </label>
+          <label>
+            Type souhaite
+            <select id="atlas-document-type">
+              <option value="devis" selected>Devis</option>
+              <option value="facture">Facture</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          Transcript / message de test
+          <textarea
+            id="atlas-transcript"
+            rows="4"
+            placeholder="Ex: bghit devis dyal pose carrelage 20m2 f Casablanca budget 3000 dh"
+          ></textarea>
+        </label>
+
+        <div class="row test-actions">
+          <div class="row-actions">
+            <button id="atlas-mic-btn" class="secondary" type="button">Parler</button>
+            <button id="atlas-test-btn" class="secondary" type="button">Tester comprehension</button>
+            <button id="atlas-generate-btn" class="primary" type="button">Generer document</button>
+          </div>
+        </div>
+
+        <div id="atlas-status" class="output empty test-output">
+          Pret pour un test Darija.
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row-between">
+          <h2>Optimisation IA</h2>
+        </div>
+        <div id="analysis-output" class="output empty">
+          L'IA te propose un resume, questions et conseils.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Questions frequentes</h2>
+        <div class="faq">
+          <div>
+            <h3>Est-ce gratuit ?</h3>
+            <p>Oui, la version de base est gratuite pour demarrer.</p>
+          </div>
+          <div>
+            <h3>Puis-je personnaliser le devis ?</h3>
+            <p>Tu modifies les lignes, les prix, la marge et la TVA.</p>
+          </div>
+          <div>
+            <h3>Compatible multi-devise ?</h3>
+            <p>Par defaut MAD, mais on peut ajouter d'autres devises.</p>
+          </div>
+          <div>
+            <h3>Mes donnees sont-elles securisees ?</h3>
+            <p>On ne garde rien par defaut, usage local sur ton poste.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row-between">
+          <h2>Devis genere</h2>
+          <button id="print-btn" class="secondary" disabled>Export PDF</button>
+        </div>
+        <div id="quote-output" class="output empty">
+          Ton devis apparaitra ici.
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Gratuit pour artisans marocains · DevisAI
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
+

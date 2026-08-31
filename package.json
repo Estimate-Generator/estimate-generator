@@ -1,0 +1,15 @@
+{
+  "name": "devis-ai-maroc",
+  "version": "0.1.0",
+  "description": "Generateur de devis gratuit pour artisans au Maroc",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
+
